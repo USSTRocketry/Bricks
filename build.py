@@ -1,4 +1,4 @@
-#!/bin/python
+#!/usr/bin/env python3
 
 import argparse
 import os
@@ -6,6 +6,7 @@ import platform
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 
 def run_cmd(cmds: list):
@@ -13,6 +14,7 @@ def run_cmd(cmds: list):
     run given shell commands
     """
     for cmd in cmds:
+        print(cmd)
         try:
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as e:
@@ -21,7 +23,37 @@ def run_cmd(cmds: list):
             sys.exit(e.returncode)
 
 
-class CmakeTarget:
+class Target:
+    @staticmethod
+    def config():
+        """
+        Return dict of mode configurations:
+        mode_name -> dict (e.g. command parts, description, hooks)
+        """
+        raise NotImplementedError()
+
+    @staticmethod
+    def cmd():
+        """
+        Return list of valid modes (keys from config)
+        """
+        return list(Target.config().keys())
+
+    @staticmethod
+    def help() -> str:
+        """
+        Return help string describing available modes
+        """
+        return ""
+
+    def invoke(self, modes: list, args: list):
+        """
+        Execute given modes with extra args (dict: mode -> args list)
+        """
+        raise NotImplementedError()
+
+
+class CmakeTarget(Target):
     """
     handles all cmake configuration and build target
     """
@@ -37,37 +69,44 @@ class CmakeTarget:
                 "cmd": ["-S", ".", "-G", "Ninja"],
                 "description": "Configure the project",
                 "working_dir": "-B",
+                "pre_hook": "populate_cmake_cmd",
             },
             "build": {
                 "cmd": [],
                 "description": "Build the project",
                 "working_dir": "--build",
+                "pre_hook": "populate_cmake_cmd",
             },
             "db": {
                 "cmd": ["-S", ".", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
                 "description": "Generate compile_commands.json",
                 "working_dir": "-B",
+                "pre_hook": "populate_cmake_cmd",
             },
             "refresh": {
                 "cmd": ["--fresh", "-S", ".", "-G", "Ninja"],
                 "description": "Fresh configure the project",
                 "working_dir": "-B",
+                "pre_hook": "populate_cmake_cmd",
             },
             "clean": {
                 "cmd": ["--target", "clean"],
                 "description": "Clean the build files",
                 "working_dir": "--build",
+                "pre_hook": "populate_cmake_cmd",
                 "post_hook": "clean_artifact",
             },
             "test": {
-                "cmd": ["--output-on-failure"],
-                "description": "Run tests",
-                "working_dir": "--test-dir",
-                "tool": "ctest",
+                "description": "run default test",
+                "pre_hook": "populate_test_cmd",
+                "pre_arg": ["TestRunner", True],
             },
-            "config_dump": {
-                "description": "Dumps complete configurations, for debugging",
-                "post_hook": "print_cfg_dump",
+            "ctest": {
+                "description": "run cmake test",
+                "tool": "ctest",
+                "working_dir": "--test-dir",
+                "pre_hook": "populate_test_cmd",
+                "pre_arg": ["TestRunner"],
             },
         }
 
@@ -95,16 +134,23 @@ class CmakeTarget:
         entry point : runs associated Cmake commands given modes
         """
         for mode in modes:
-            cfg = self.generate_cfg_mode(mode)
+            cfg = self.config()[mode].copy()
+
+            pre_hook, hook_arg, hook_kwarg = self.resolve_hook(
+                cfg, cfg.get("pre_hook", ""), "pre_arg", "pre_kwarg"
+            )
+            if pre_hook:
+                pre_hook(cfg, *hook_arg, **hook_kwarg)
+
             cmd = cfg.get("cmd")
             if cmd:
                 run_cmd([cmd])
 
-            post_hook, args, kwarg = self.resolve_hook(
-                cfg, cfg.get("post_hook"), "post_arg", "post_kwarg"
+            post_hook, hook_arg, hook_kwarg = self.resolve_hook(
+                cfg, cfg.get("post_hook", ""), "post_arg", "post_kwarg"
             )
             if post_hook:
-                post_hook(*args, **kwarg)
+                post_hook(cfg, *hook_arg, **hook_kwarg)
 
     def resolve_hook(self, cfg, hook_name: str, arg_name: str, kwarg_name: str):
         """
@@ -121,46 +167,33 @@ class CmakeTarget:
         kwargs = cfg.get(kwarg_name, {})
         return method, args, kwargs
 
-    def generate_cfg_mode(self, mode):
-        """
-        generate a single cfg based on mode
+    ############## Optional #######################
 
-        if 'post_hook' depends on args, new entries :
-            ['post_arg'] = []
-            ['post_kwarg'] = {}
-        must be added to the cfg
-        """
-        cfg = self.config()[mode].copy()
+    def populate_cmake_cmd(self, cfg):
+        # allow empty cmd array
+        if cfg.get("cmd") is None:
+            return cfg
 
-        cmd = cfg.get("cmd")
-        if cmd:
-            cmd = cmd.copy()
-            cmd.insert(0, cfg.get("tool", self.default_tool))
+        cmd_rest = cfg.get("cmd").copy()
 
-            build_flag = cfg.get("working_dir")
-            if build_flag:
-                cmd[1:1] = [build_flag, self.build_dir]
+        cmd = [cfg.get("tool", self.default_tool)]
+        build_flag = cfg.get("working_dir")
+        if build_flag:
+            cmd.extend([build_flag, self.build_dir])
 
-            cfg["cmd"] = cmd
+        cmd.extend(cmd_rest)
+        cfg["cmd"] = cmd
 
         return cfg
 
-    ############## Optional #######################
-
-    def generate_all(self):
-        """
-        generate all configurations
-        """
-        return {mode: self.generate_cfg_mode(mode) for mode in self.config()}
-
-    def print_cfg_dump(self):
-        print(self.generate_all())
-
     @staticmethod
-    def clean_artifact():
+    def clean_artifact(cfg):
         """
-        msvc sometimes generates build files outside of the specified dir
-        need to clean it up
+        On builds where the binary is forced to generate in the root directory,
+        msvc will also generate build specific '.ilk' and '.pdb' files
+        in the binary directory instead of the build directory.
+
+        param cfg is required due to current api
         """
         if platform.system() == "Windows":
             MSVC_TEMP_EXTS = [".ilk", ".pdb"]
@@ -168,6 +201,59 @@ class CmakeTarget:
             for file in os.listdir("."):
                 if any(file.endswith(ext) for ext in MSVC_TEMP_EXTS):
                     os.remove(file)
+
+    def find_ctest_dir(self) -> Path | None:
+        """
+        Search recursively under self.build_dir for a directory containing CTestTestfile.cmake.
+        Return the first such directory found as a Path object, or None if not found.
+        """
+        build_path = Path(self.build_dir)
+        for root, _, files in os.walk(build_path):
+            if "CTestTestfile.cmake" in files:
+                return Path(root)
+        return None
+
+    def populate_test_cmd(self, cfg, test_name: str, as_executable=False):
+        """
+        Build and set the command list in cfg['cmd'] to run tests.
+
+        Args:
+            cfg (dict): Configuration dictionary.
+            test_name (str): Name of the test runner.
+                            - If `as_executable` is True, this is a binary name (without '.exe').
+                            - If `as_executable` is False, this is a directory name
+
+            as_executable (bool): If True, appends executable (adds '.exe' on Windows).
+
+        Modifies:
+            cfg['cmd']: List of command parts to execute.
+        """
+        test_runner_path = self.find_ctest_dir()
+        if not test_runner_path:
+            print("Warn : cmake test dir not found, trying build dir")
+            test_runner_path = Path(self.build_dir)
+
+        if as_executable:
+            if platform.system() == "Windows":
+                test_runner_path /= test_name + ".exe"
+
+        cmd = []
+
+        tool = cfg.get("tool")
+        if tool:
+            cmd.append(tool)
+
+        build_flag = cfg.get("working_dir")
+        if build_flag:
+            cmd.append(build_flag)
+
+        cmd.append(str(test_runner_path))
+
+        cmd_rest = cfg.get("cmd")
+        if cmd_rest:
+            cmd.extend(cmd_rest)
+
+        cfg["cmd"] = cmd
 
 
 def main():
@@ -182,14 +268,14 @@ def main():
         default="build",
         help="Specify custom build directory (default: build)",
     )
-
     parser.add_argument(
         "mode",
         metavar="mode",
-        nargs="+",
+        nargs="*",
         choices=CmakeTarget.cmd(),
         help=CmakeTarget.help(),
     )
+
     args = parser.parse_args()
 
     cmake_target = CmakeTarget(args.working_dir)
