@@ -58,8 +58,7 @@ class CmakeTarget(Target):
     handles all cmake configuration and build target
     """
 
-    def __init__(self, build_dir="build"):
-        self.default_tool = "cmake"
+    def __init__(self, build_dir="Build", args: list = []):
         self.build_dir = build_dir
 
     @staticmethod
@@ -71,6 +70,12 @@ class CmakeTarget(Target):
                 "working_dir": "-B",
                 "pre_hook": "populate_cmake_cmd",
             },
+            "debug": {
+                "cmd": ["-S", ".", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"],
+                "description": "Configure the project",
+                "working_dir": "-B",
+                "pre_hook": "populate_cmake_cmd",
+            },
             "build": {
                 "cmd": [],
                 "description": "Build the project",
@@ -78,7 +83,7 @@ class CmakeTarget(Target):
                 "pre_hook": "populate_cmake_cmd",
             },
             "db": {
-                "cmd": ["-S", ".", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
+                "cmd": ["-G", "Ninja", "-S", ".", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
                 "description": "Generate compile_commands.json",
                 "working_dir": "-B",
                 "pre_hook": "populate_cmake_cmd",
@@ -97,6 +102,7 @@ class CmakeTarget(Target):
                 "post_hook": "clean_artifact",
             },
             "test": {
+                "cmd": ["--gtest_brief=1"],
                 "description": "run default test",
                 "pre_hook": "populate_test_cmd",
                 "pre_arg": ["TestRunner", True],
@@ -134,13 +140,14 @@ class CmakeTarget(Target):
         entry point : runs associated Cmake commands given modes
         """
         for mode in modes:
-            cfg = self.config()[mode].copy()
+            self.current_cfg = self.config()[mode].copy()
+            cfg = self.current_cfg
 
             pre_hook, hook_arg, hook_kwarg = self.resolve_hook(
                 cfg, cfg.get("pre_hook", ""), "pre_arg", "pre_kwarg"
             )
             if pre_hook:
-                pre_hook(cfg, *hook_arg, **hook_kwarg)
+                pre_hook(*hook_arg, **hook_kwarg)
 
             cmd = cfg.get("cmd")
             if cmd:
@@ -150,7 +157,7 @@ class CmakeTarget(Target):
                 cfg, cfg.get("post_hook", ""), "post_arg", "post_kwarg"
             )
             if post_hook:
-                post_hook(cfg, *hook_arg, **hook_kwarg)
+                post_hook(*hook_arg, **hook_kwarg)
 
     def resolve_hook(self, cfg, hook_name: str, arg_name: str, kwarg_name: str):
         """
@@ -169,14 +176,16 @@ class CmakeTarget(Target):
 
     ############## Optional #######################
 
-    def populate_cmake_cmd(self, cfg):
+    def populate_cmake_cmd(self):
+        cfg = self.current_cfg
+        default_tool = "cmake"
         # allow empty cmd array
         if cfg.get("cmd") is None:
             return cfg
 
         cmd_rest = cfg.get("cmd").copy()
 
-        cmd = [cfg.get("tool", self.default_tool)]
+        cmd = [cfg.get("tool", default_tool)]
         build_flag = cfg.get("working_dir")
         if build_flag:
             cmd.extend([build_flag, self.build_dir])
@@ -187,13 +196,11 @@ class CmakeTarget(Target):
         return cfg
 
     @staticmethod
-    def clean_artifact(cfg):
+    def clean_artifact():
         """
         On builds where the binary is forced to generate in the root directory,
         msvc will also generate build specific '.ilk' and '.pdb' files
         in the binary directory instead of the build directory.
-
-        param cfg is required due to current api
         """
         if platform.system() == "Windows":
             MSVC_TEMP_EXTS = [".ilk", ".pdb"]
@@ -213,7 +220,7 @@ class CmakeTarget(Target):
                 return Path(root)
         return None
 
-    def populate_test_cmd(self, cfg, test_name: str, as_executable=False):
+    def populate_test_cmd(self, test_name: str, as_executable=False):
         """
         Build and set the command list in cfg['cmd'] to run tests.
 
@@ -238,6 +245,7 @@ class CmakeTarget(Target):
                 test_runner_path /= test_name + ".exe"
 
         cmd = []
+        cfg = self.current_cfg
 
         tool = cfg.get("tool")
         if tool:

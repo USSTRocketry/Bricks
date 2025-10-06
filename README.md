@@ -4,7 +4,7 @@ You are all bricks
 This is the utility repo for all avionics software
 
 # build the project
-Build the project with `Build.py`
+Build the project with `build.py`
 
 # Glossary
 - [Project name generator](#project-name-generator)
