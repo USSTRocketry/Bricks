@@ -10,28 +10,35 @@ template <typename T, uint32_t BuffSize = 64>
 class CircularBuffer
 {
 public:
-    bool Queue(auto&& Item)
+    /*
+     * Queues item to the buffer, does not overwrite elements
+     * @returns true if queued
+     */
+    bool Queue(std::same_as<T> auto&& Item)
     {
-        auto [Result, Index] = NextWriteIndex();
-        if (!Result) { return Result; }
+        if (m_Size == BuffSize) { return false; }
 
-        m_Buffer[Index] = std::forward<decltype(Item)>(Item);
-        m_Tail          = Index;
+        m_Buffer[m_Tail] = std::forward<decltype(Item)>(Item);
+        m_Tail           = (m_Tail + 1) % BuffSize;
         m_Size++;
 
         return true;
     }
+    /*
+     * Get item from the buffer
+     */
     std::optional<T> Dequeue()
     {
-        if (!HasData()) { return std::nullopt; }
+        if (m_Size == 0) { return std::nullopt; }
 
-        m_Head = (m_Head + 1) % BuffSize;
         T Item = std::move(m_Buffer[m_Head]);
+        m_Head = (m_Head + 1) % BuffSize;
         m_Size--;
 
         return {std::move(Item)};
     }
 
+    // current elements in buffer
     uint32_t Size() const { return m_Size; }
 
 public:
@@ -74,15 +81,8 @@ public:
         return *this;
     }
 
-private:
-    bool HasData() { return m_Size != 0; }
-
-    auto NextWriteIndex() -> std::pair<bool, uint32_t>
-    {
-        if (m_Size == BuffSize) { return {false, 0}; }
-        auto Index = (m_Tail + 1) % BuffSize;
-        return {true, Index};
-    }
+public:
+    bool operator==(const CircularBuffer& Other) const { return m_Buffer == Other.m_Buffer; }
 
 private:
     std::array<T, BuffSize> m_Buffer;

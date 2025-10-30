@@ -273,8 +273,8 @@ def main():
     parser.add_argument(
         "-C",
         "--working-dir",
-        default="build",
-        help="Specify custom build directory (default: build)",
+        default="out",
+        help="Specify custom build directory (default: out)",
     )
     parser.add_argument(
         "mode",
