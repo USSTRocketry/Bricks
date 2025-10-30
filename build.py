@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import os
 import platform
 import shlex
@@ -58,51 +59,52 @@ class CmakeTarget(Target):
     handles all cmake configuration and build target
     """
 
-    def __init__(self, build_dir="Build", args: list = []):
+    def __init__(self, build_dir="out", args: list = []):
         self.build_dir = build_dir
 
     @staticmethod
     def config():
         return {
             "configure": {
-                "cmd": ["-S", ".", "-G", "Ninja"],
+                "arg": ["-S", ".", "-G", "Ninja"],
                 "description": "Configure the project",
                 "working_dir": "-B",
                 "pre_hook": "populate_cmake_cmd",
             },
             "debug": {
-                "cmd": ["-S", ".", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"],
+                "arg": ["-S", ".", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"],
                 "description": "Configure the project",
                 "working_dir": "-B",
                 "pre_hook": "populate_cmake_cmd",
             },
             "build": {
-                "cmd": [],
+                "arg": [],
                 "description": "Build the project",
                 "working_dir": "--build",
                 "pre_hook": "populate_cmake_cmd",
             },
             "db": {
-                "cmd": ["-G", "Ninja", "-S", ".", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
+                "arg": ["-G", "Ninja", "-S", ".", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"],
                 "description": "Generate compile_commands.json",
                 "working_dir": "-B",
                 "pre_hook": "populate_cmake_cmd",
+                "post_hook": "gen_clangd_config",
             },
             "refresh": {
-                "cmd": ["--fresh", "-S", ".", "-G", "Ninja"],
+                "arg": ["--fresh", "-S", ".", "-G", "Ninja"],
                 "description": "Fresh configure the project",
                 "working_dir": "-B",
                 "pre_hook": "populate_cmake_cmd",
             },
             "clean": {
-                "cmd": ["--target", "clean"],
+                "arg": ["--target", "clean"],
                 "description": "Clean the build files",
                 "working_dir": "--build",
                 "pre_hook": "populate_cmake_cmd",
                 "post_hook": "clean_artifact",
             },
             "test": {
-                "cmd": ["--gtest_brief=1"],
+                "arg": ["--gtest_brief=1"],
                 "description": "run default test",
                 "pre_hook": "populate_test_cmd",
                 "pre_arg": ["TestRunner", True],
@@ -149,7 +151,7 @@ class CmakeTarget(Target):
             if pre_hook:
                 pre_hook(*hook_arg, **hook_kwarg)
 
-            cmd = cfg.get("cmd")
+            cmd = cfg.get("arg")
             if cmd:
                 run_cmd([cmd])
 
@@ -180,10 +182,10 @@ class CmakeTarget(Target):
         cfg = self.current_cfg
         default_tool = "cmake"
         # allow empty cmd array
-        if cfg.get("cmd") is None:
+        if cfg.get("arg") is None:
             return cfg
 
-        cmd_rest = cfg.get("cmd").copy()
+        cmd_rest = cfg.get("arg").copy()
 
         cmd = [cfg.get("tool", default_tool)]
         build_flag = cfg.get("working_dir")
@@ -191,7 +193,7 @@ class CmakeTarget(Target):
             cmd.extend([build_flag, self.build_dir])
 
         cmd.extend(cmd_rest)
-        cfg["cmd"] = cmd
+        cfg["arg"] = cmd
 
         return cfg
 
@@ -257,11 +259,30 @@ class CmakeTarget(Target):
 
         cmd.append(str(test_runner_path))
 
-        cmd_rest = cfg.get("cmd")
+        cmd_rest = cfg.get("arg")
         if cmd_rest:
             cmd.extend(cmd_rest)
 
-        cfg["cmd"] = cmd
+        cfg["arg"] = cmd
+
+    def gen_clangd_config(self):
+        """
+        Create a .clangd config file pointing to compile_commands.json
+        clangd only searches for the "build" dir for that file
+        """
+        project_root = Path(".")
+        clangd_config = project_root / ".clangd"
+        build_path = project_root / self.build_dir
+
+        compile_db = build_path / "compile_commands.json"
+        if not compile_db.exists():
+            raise FileNotFoundError(f"{compile_db} not found")
+
+        clangd_dict = {"CompileFlags": {"CompilationDatabase": self.build_dir}}
+
+        # Write JSON to .clangd
+        with clangd_config.open("w") as f:
+            json.dump(clangd_dict, f, indent=4)
 
 
 def main():
@@ -273,8 +294,8 @@ def main():
     parser.add_argument(
         "-C",
         "--working-dir",
-        default="build",
-        help="Specify custom build directory (default: build)",
+        default="out",
+        help="Specify custom build directory (default: out)",
     )
     parser.add_argument(
         "mode",

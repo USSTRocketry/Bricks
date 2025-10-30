@@ -1,6 +1,8 @@
 #include "gtest/gtest.h"
 #include "CircularBuffer.h"
 
+using namespace ra::bricks;
+
 namespace RA::Bricks
 {
 // Test that the buffer starts empty
@@ -120,7 +122,7 @@ TEST(CircularBufferTest, MoveConstructor)
     EXPECT_TRUE(buffer.Queue(20));
 
     // Move the buffer
-    CircularBuffer<int, 3> movedBuffer = std::move(buffer);
+    auto movedBuffer = std::move(buffer);
 
     // The original buffer should be empty now
     EXPECT_FALSE(buffer.Dequeue().has_value());
