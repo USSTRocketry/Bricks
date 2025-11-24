@@ -5,7 +5,7 @@
 using namespace testing;
 using ::testing::NiceMock;
 
-namespace RA::Bricks::StateMachine
+namespace ra::bricks::StateMachine
 {
 // Mock class for IDynamicState<int, std::string>
 struct MockState : public IDynamicState<int, std::string>
@@ -21,7 +21,7 @@ TEST(DynamicStateMachineTest, NoInitialState)
     // Run without setting initial state → should halt and return nullopt
     auto result = machine.Run(1);
     EXPECT_FALSE(result.has_value());
-    EXPECT_EQ(machine.GetState(), StateMachineStatus::Halt);
+    EXPECT_EQ(machine.GetFSM_State(), StateMachineStatus::Halt);
 }
 
 TEST(DynamicStateMachineTest, TransitionAndLifecycleWithMocks)
@@ -57,7 +57,7 @@ TEST(DynamicStateMachineTest, TransitionAndLifecycleWithMocks)
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), "Terminate");
 
-    EXPECT_EQ(machine.GetState(), StateMachineStatus::Halt);
+    EXPECT_EQ(machine.GetFSM_State(), StateMachineStatus::Halt);
 }
 
 TEST(DynamicStateMachineTest, TransitionToNullptrTerminatesWithMocks)
@@ -77,7 +77,7 @@ TEST(DynamicStateMachineTest, TransitionToNullptrTerminatesWithMocks)
 
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result.value(), "Terminate");
-    EXPECT_EQ(machine.GetState(), StateMachineStatus::Halt);
+    EXPECT_EQ(machine.GetFSM_State(), StateMachineStatus::Halt);
 }
 
 TEST(DynamicStateMachineTest, StayInSameStateMultipleRunsWithMocks)
@@ -128,7 +128,7 @@ TEST(DynamicStateMachineTest, SetInitialStateWithNullptr)
     DynamicStateMachine<int, std::string> machine;
     auto* state = machine.EnterState(nullptr);
     EXPECT_EQ(state, nullptr);
-    EXPECT_EQ(machine.GetState(), StateMachineStatus::Halt);
+    EXPECT_EQ(machine.GetFSM_State(), StateMachineStatus::Halt);
 }
 
 TEST(DynamicStateMachineTest, RunAfterHaltReturnsNulloptWithMocks)
@@ -154,10 +154,10 @@ TEST(DynamicStateMachineTest, RunAfterHaltReturnsNulloptWithMocks)
     machine.EnterState(stateB);
     machine.Run(0); // terminate, set to Halt
 
-    EXPECT_EQ(machine.GetState(), StateMachineStatus::Halt);
+    EXPECT_EQ(machine.GetFSM_State(), StateMachineStatus::Halt);
 
     auto result = machine.Run(5);
     EXPECT_FALSE(result.has_value());
 }
 
-} // namespace RA::Bricks::StateMachine
+} // namespace ra::bricks::StateMachine

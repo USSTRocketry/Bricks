@@ -3,8 +3,9 @@
 #include <variant>
 #include <optional>
 #include <memory>
+#include "CircularBuffer.h"
 
-namespace RA::Bricks::StateMachine
+namespace ra::bricks::StateMachine
 {
 /********************************
  *          Variant
@@ -149,13 +150,35 @@ struct OwningPolicy final : IStatePolicy<State>
 // SharedPolicy cannot be used here because we are only working with a raw pointer.
 // Instead, use OwningPolicy<SharedState> to manage ownership safely.
 // Note: This introduces a performance overhead due to the unique_ptr → shared_ptr → state.run() transition.
-
 enum class StateMachineStatus
 {
     Running,
     Halt,
 };
 
+/**
+ * @brief A dynamic finite state machine with safe deferred transitions.
+ *
+ * This class manages states implementing `IDynamicState`, allowing each state
+ * to request transitions either during its `Update`, `OnEnter`, or `OnExit`
+ * callbacks. To prevent infinite recursion and maintain a predictable execution
+ * order, transitions requested while the FSM is already running are **deferred**.
+ *
+ * Key design points:
+ * - `Run()` executes a single update cycle and applies at most one deferred transition.
+ * - `EnterState()` queues a transition if the FSM is already in progress.
+ * - `EnterStateImmediate()` applies a transition synchronously, bypassing the queue.
+ * - RAII `InProgressGuard` ensures `m_InProgress` is always correctly set,
+ *   preventing nested transitions from causing recursion.
+ *
+ * Infinite recursion can occur if a state callback synchronously triggered another
+ * transition. This class avoids it by deferring transitions until the current
+ * update completes, ensuring each state finishes its callbacks before the next
+ * transition is processed.
+ *
+ * Deferred transitions are applied in FIFO order. Urgent transitions can bypass
+ * the queue using `EnterStateImmediate()`.
+ */
 template <typename Input, typename ReturnType, template <typename> class StatePolicy = OwningPolicy>
 class DynamicStateMachine
 {
@@ -163,30 +186,97 @@ class DynamicStateMachine
     using Policy    = StatePolicy<StateType>;
 
 public:
+    /**
+     * @brief Executes a single update cycle of the FSM.
+     *
+     * This processes at most one deferred transition and then updates
+     * the current state. If the state requests a transition, it is applied
+     * immediately (or queued if the FSM is already in progress).
+     *
+     * @param In Input for the current update cycle.
+     * @return std::optional<ReturnType> The return value from the state's Update().
+     *         std::nullopt if there is no active state.
+     *
+     * @note Only a single unit of work is performed per call. Additional
+     *       deferred transitions remain queued for future calls.
+     */
     std::optional<ReturnType> Run(Input&& In)
     {
+        InProgressGuard Guard {m_InProgress};
+
         StateType* pS = m_StatePolicy.Get();
         if (pS == nullptr) { return std::nullopt; }
 
-        auto [ReturnVal, pNewState] = pS->Update(std::forward<Input>(In));
+        auto [ReturnVal, pNewState] = pS->Update(std::forward<decltype(In)>(In));
 
         if (pNewState != pS)
         {
             pS->OnExit();
-            StateTransition(pNewState);
+            StateTransitionDeferred(pNewState);
+        }
+
+        {
+            const auto NextQueuedState = m_DeferredState.Dequeue();
+            if (NextQueuedState.has_value()) { StateTransition(NextQueuedState.value()); }
         }
 
         return {ReturnVal};
     }
+    /**
+     * @brief Transition the FSM to the requested state.
+     *
+     * If the FSM is currently in progress, the state is queued and the
+     * active state is returned
+     *
+     * @param pState Pointer to the state to enter.
+     * @return StateType* Pointer to the active state.
+     */
+    StateType* EnterState(StateType* pState)
+    {
+        if (m_InProgress) { return StateTransitionDeferred(pState); }
 
-    StateType* EnterState(StateType* pState) { return StateTransition(pState); }
+        InProgressGuard Guard {m_InProgress};
+        auto Result = StateTransition(pState);
 
-    StateMachineStatus GetState() const
+        return Result;
+    }
+    /**
+     * @brief Transition the FSM to the requested state.
+     *
+     * If the FSM is currently in progress, the state is queued and the
+     * active state is returned
+     *
+     * @param pState Pointer to the state to enter.
+     * @return StateType* Pointer to the active state.
+     */
+    StateType* EnterStateImmediate(StateType* pState)
+    {
+        InProgressGuard Guard {m_InProgress};
+        auto Result = StateTransition(pState);
+
+        return Result;
+    }
+
+    StateMachineStatus GetFSM_State() const
     {
         return m_StatePolicy.Get() == nullptr ? StateMachineStatus::Halt : StateMachineStatus::Running;
     }
 
 protected:
+    StateType* StateTransitionDeferred(StateType* pState)
+    {
+        m_DeferredState.Queue(std::move(pState));
+        return m_StatePolicy.Get();
+    }
+    /**
+     * @brief Performs a state transition.
+     *
+     * If the FSM is in progress, the state is queued. Otherwise,
+     * the current state is replaced and OnEnter() is called.
+     *
+     * @param pState Pointer to the new state.
+     * @return StateType* Pointer to the active state after the transition,
+     */
     StateType* StateTransition(StateType* pState)
     {
         auto pS = m_StatePolicy.SetState(pState);
@@ -195,6 +285,20 @@ protected:
     }
 
 private:
+    bool m_InProgress {false};
     Policy m_StatePolicy;
+    ra::bricks::CircularBuffer<StateType*, 10> m_DeferredState;
+
+private:
+    struct InProgressGuard
+    {
+        bool& Flag;
+        explicit InProgressGuard(bool& flag) : Flag(flag) { Flag = true; }
+        ~InProgressGuard() { Flag = false; }
+
+        // Disable copying
+        InProgressGuard(const InProgressGuard&)            = delete;
+        InProgressGuard& operator=(const InProgressGuard&) = delete;
+    };
 };
-} // namespace RA::Bricks::StateMachine
+} // namespace ra::bricks::StateMachine

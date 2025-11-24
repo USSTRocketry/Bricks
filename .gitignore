@@ -9,6 +9,8 @@ out/
 cmake-build-debug/
 CMakeSettings.json
 
+.clangd
+
 *.ilk
 *.pdb
 

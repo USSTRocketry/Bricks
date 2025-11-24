@@ -45,23 +45,23 @@ public:
         requires std::integral<T> || std::floating_point<T>
     T Value(T Min = std::numeric_limits<T>::min(), T Max = std::numeric_limits<T>::max())
     {
-        using DistType =
-            std::conditional_t<std::integral<T>, std::uniform_int_distribution<T>, std::uniform_real_distribution<T>>;
+        if constexpr (std::is_same_v<T, uint8_t>)
+        {
+            std::uniform_int_distribution<unsigned int> dist(Min, Max);
+            return static_cast<uint8_t>(dist(Engine));
+        }
+        else if constexpr (std::is_same_v<T, int8_t>)
+        {
+            std::uniform_int_distribution<int> dist(Min, Max);
+            return static_cast<int8_t>(dist(Engine));
+        }
+        else {
+            using DistType = std::
+                conditional_t<std::integral<T>, std::uniform_int_distribution<T>, std::uniform_real_distribution<T>>;
 
-        DistType dist(Min, Max);
-        return dist(Engine);
-    }
-    template <>
-    uint8_t Value<uint8_t>(uint8_t Min, uint8_t Max)
-    {
-        std::uniform_int_distribution<unsigned int> dist(Min, Max);
-        return static_cast<uint8_t>(dist(Engine));
-    }
-    template <>
-    int8_t Value<int8_t>(int8_t Min, int8_t Max)
-    {
-        std::uniform_int_distribution<int> dist(Min, Max);
-        return static_cast<int8_t>(dist(Engine));
+            DistType dist(Min, Max);
+            return dist(Engine);
+        }
     }
 
     /**

@@ -59,8 +59,14 @@ class CmakeTarget(Target):
     handles all cmake configuration and build target
     """
 
-    def __init__(self, build_dir="out", args: list = []):
-        self.build_dir = build_dir
+    def __init__(
+        self,
+        build_dir: str,
+        test_name: str,
+        args: list = [],
+    ):
+        self.build_dir: str = build_dir
+        self.test_name: str = test_name
 
     @staticmethod
     def config():
@@ -107,14 +113,13 @@ class CmakeTarget(Target):
                 "arg": ["--gtest_brief=1"],
                 "description": "run default test",
                 "pre_hook": "populate_test_cmd",
-                "pre_arg": ["TestRunner", True],
+                "pre_arg": [True],
             },
             "ctest": {
                 "description": "run cmake test",
                 "tool": "ctest",
                 "working_dir": "--test-dir",
                 "pre_hook": "populate_test_cmd",
-                "pre_arg": ["TestRunner"],
             },
         }
 
@@ -211,18 +216,21 @@ class CmakeTarget(Target):
                 if any(file.endswith(ext) for ext in MSVC_TEMP_EXTS):
                     os.remove(file)
 
-    def find_ctest_dir(self) -> Path | None:
+    def find_ctest_dir(self, test_executable: str) -> Path | None:
         """
         Search recursively under self.build_dir for a directory containing CTestTestfile.cmake.
         Return the first such directory found as a Path object, or None if not found.
         """
         build_path = Path(self.build_dir)
         for root, _, files in os.walk(build_path):
-            if "CTestTestfile.cmake" in files:
+            if root.startswith("."):
+                continue
+
+            if "CTestTestfile.cmake" in files and test_executable in files:
                 return Path(root)
         return None
 
-    def populate_test_cmd(self, test_name: str, as_executable=False):
+    def populate_test_cmd(self, as_executable: bool = False):
         """
         Build and set the command list in cfg['cmd'] to run tests.
 
@@ -237,14 +245,17 @@ class CmakeTarget(Target):
         Modifies:
             cfg['cmd']: List of command parts to execute.
         """
-        test_runner_path = self.find_ctest_dir()
+        test_exe_name = self.test_name + (
+            ".exe" if platform.system() == "Windows" else ""
+        )
+
+        test_runner_path = self.find_ctest_dir(test_exe_name)
         if not test_runner_path:
-            print("Warn : cmake test dir not found, trying build dir")
+            print("Warn: cmake test dir not found, trying build dir")
             test_runner_path = Path(self.build_dir)
 
         if as_executable:
-            if platform.system() == "Windows":
-                test_runner_path /= test_name + ".exe"
+            test_runner_path /= test_exe_name
 
         cmd = []
         cfg = self.current_cfg
@@ -298,6 +309,12 @@ def main():
         help="Specify custom build directory (default: out)",
     )
     parser.add_argument(
+        "-t",
+        "--test-name",
+        default="TestRunner",
+        help="Specify custom test exe name (default: TestRunner)",
+    )
+    parser.add_argument(
         "mode",
         metavar="mode",
         nargs="*",
@@ -307,7 +324,7 @@ def main():
 
     args = parser.parse_args()
 
-    cmake_target = CmakeTarget(args.working_dir)
+    cmake_target = CmakeTarget(args.working_dir, args.test_name)
     cmake_target.invoke(args.mode)
 
 
