@@ -41,9 +41,9 @@ public:
     /**
      * @brief Get the next allocated obj in the buffer if available.
      *
-     * @return std::optional<T&> containing the next allocated T, or std::nullopt if empty.
+     * @return containing the next allocated T, or std::nullopt if empty.
      */
-    std::optional<T&> Allocate()
+    std::optional<std::reference_wrapper<T&>> Allocate()
     {
         if (m_Size == BuffSize) { return std::nullopt; }
 
@@ -77,14 +77,14 @@ public:
      * Returns a reference to the element at the head of the buffer wrapped in
      * a std::optional. If the buffer is empty, std::nullopt is returned.
      *
-     * @return std::optional<T&> Reference to the next available item, or std::nullopt if empty.
+     * @return Reference to the next available item, or std::nullopt if empty.
      *
      * @note The returned reference remains valid only as long as the underlying
      *       buffer is not modified (e.g., until the next successful call to
      *       Dequeue() or Queue()). Accessing it after modification results in
      *       undefined behavior.
      */
-    std::optional<T&> Peek()
+    std::optional<std::reference_wrapper<T>> Peek()
     {
         if (m_Size == 0) { return std::nullopt; }
 
@@ -96,7 +96,19 @@ public:
      *
      * @return The current element count.
      */
+    uint32_t Empty() const { return m_Size == 0; }
+    /**
+     * @brief Gets the number of elements currently stored in the buffer.
+     *
+     * @return The current element count.
+     */
     uint32_t Size() const { return m_Size; }
+    /**
+     * @brief Gets the number of elements currently stored in the buffer.
+     *
+     * @return The current element count.
+     */
+    uint32_t MaxCapacity() const { return BuffSize; }
 
 public:
     CircularBuffer() = default;
