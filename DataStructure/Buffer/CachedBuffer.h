@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cassert>
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 
 #include <array>
 #include <span>
-#include <cassert>
+#include <utility>
 
 namespace ra::bricks
 {
@@ -118,8 +120,7 @@ private:
         const auto BytesWritten = m_Callback({m_Buffer.data(), m_BufferOffset}, m_CbArgs);
 
         if (BytesWritten == 0) { return false; }
-        else
-        {
+        else {
             // Shift the buffer forward
             const auto BytesLeft = m_BufferOffset - BytesWritten;
             std::memcpy(m_Buffer.data(), m_Buffer.data() + BytesWritten, BytesLeft);

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <array>
 #include <optional>
+#include <utility>
 
 namespace ra::bricks
 {
