@@ -118,7 +118,8 @@ private:
         const auto BytesWritten = m_Callback({m_Buffer.data(), m_BufferOffset}, m_CbArgs);
 
         if (BytesWritten == 0) { return false; }
-        else {
+        else
+        {
             // Shift the buffer forward
             const auto BytesLeft = m_BufferOffset - BytesWritten;
             std::memcpy(m_Buffer.data(), m_Buffer.data() + BytesWritten, BytesLeft);
@@ -128,15 +129,17 @@ private:
         return true;
     }
 
-private:
-    std::array<std::byte, BufferSize> m_Buffer {};
-    size_t m_BufferOffset    = 0;
-    // default prevents crashing
-    StoreCallback m_Callback = [](auto, auto*)
+    static uint32_t EmptyWriter(std::span<const std::byte>, void*)
     {
         assert(true);
         return 0;
     };
+
+private:
+    std::array<std::byte, BufferSize> m_Buffer {};
+    size_t m_BufferOffset    = 0;
+    // default prevents crashing
+    StoreCallback m_Callback = &CachedBuffer::EmptyWriter;
     void* m_CbArgs {nullptr};
 };
 } // namespace ra::bricks
