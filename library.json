@@ -1,0 +1,26 @@
+{
+  "name": "Bricks",
+  "version": "1.0.0",
+  "description": "Utility repo for all avionics software",
+  "keywords": [
+    "avionics",
+    "datastructure"
+  ],
+  "authors": [
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/USSTRocketry/Bricks.git"
+  },
+  "build": {
+    "flags": [
+      "-std=c++20"
+    ],
+    "srcFilter": [
+      "+<DataStructure/>",
+      "+<DataStructure/Buffer/>",
+      "+<DataStructure/StateMachine/>"
+    ],
+    "includeDir": "."
+  }
+}
