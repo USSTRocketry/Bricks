@@ -4,9 +4,7 @@
   "description": "Utility repo for all avionics software",
   "keywords": [
     "avionics",
-    "datastructure"
-  ],
-  "authors": [
+    "utility"
   ],
   "repository": {
     "type": "git",
