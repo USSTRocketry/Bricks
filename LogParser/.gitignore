@@ -1,0 +1,17 @@
+# Ignore the target folder (build artifacts)
+target/
+
+# Ignore Cargo.lock for libraries (optional)
+Cargo.lock
+
+# Ignore backup files
+**/*.rs.bk
+
+# Ignore IDE configuration files (optional)
+.idea/
+.vscode/
+
+# Ignore Rust backup files (optional)
+*.swp
+
+metadata.json
