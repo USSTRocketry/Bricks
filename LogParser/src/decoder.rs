@@ -1,46 +1,73 @@
-use std::io::{self, Cursor, prelude::*};
+use once_cell::sync::Lazy;
+use prost_reflect::{DescriptorPool, DynamicMessage};
+use rayon::prelude::*;
+use std::io::Cursor;
 
-pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/proto.rs"));
-}
-
-pub enum Data {
-    Raw(Vec<u8>),
-    Decoded(Option<proto::LogMessage>),
-}
+pub static DESCRIPTOR_POOL: Lazy<DescriptorPool> = Lazy::new(|| {
+    DescriptorPool::decode(
+        include_bytes!(concat!(env!("OUT_DIR"), "/file_descriptor_set.bin")).as_ref(),
+    )
+    .unwrap()
+});
 
 pub struct ProtoView {
     pub sequence: usize,
-    pub data: Data,
+    pub data: Option<DynamicMessage>,
+}
+
+pub enum DecodeStatus {
+    Complete,
+    Partial,
 }
 
 impl ProtoView {
-    pub fn new(sequence: usize, data: Vec<u8>) -> Self {
+    pub fn new(sequence: usize, decoded: Option<DynamicMessage>) -> Self {
         return Self {
             sequence,
-            data: Data::Raw(data),
+            data: decoded,
         };
     }
 }
 
-pub fn parse_proto_view<B: Into<Vec<u8>>>(data: B) -> impl Iterator<Item = io::Result<ProtoView>> {
-    let buffer: Vec<u8> = data.into();
-    let mut stream = Cursor::new(buffer);
+fn parse_proto_ranges(data: &[u8]) -> (Vec<(usize, usize)>, DecodeStatus) {
+    let mut stream = Cursor::new(data);
+    let mut ranges = Vec::new();
 
-    let mut sequence = 0;
+    while let Ok(length) = prost::decode_length_delimiter(&mut stream) {
+        let start = stream.position() as usize;
+        let end = start.saturating_add(length);
+        if end > data.len() {
+            return (ranges, DecodeStatus::Partial);
+        }
 
-    std::iter::repeat_with(move || {
-        // Create a mutable slice from the buffer
-        let length = prost::decode_length_delimiter(&mut stream)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        ranges.push((start, end));
+        stream.set_position(end as u64);
+    }
 
-        let mut data = vec![0; length as usize];
-        stream.read_exact(&mut data)?;
+    (ranges, DecodeStatus::Complete)
+}
 
-        let view = ProtoView::new(sequence, data);
-        sequence += 1;
+pub fn proto_log_decode<B: AsRef<[u8]>>(proto_data: B) -> (Vec<ProtoView>, DecodeStatus) {
+    let buffer = proto_data.as_ref();
+    let (ranges, status) = parse_proto_ranges(buffer);
 
-        Ok(view)
-    })
-    .take_while(Result::is_ok)
+    let message_desc = DESCRIPTOR_POOL
+        .get_message_by_name("Proto.LogMessage")
+        .expect("Failed to find LogMessage definition in desc pool");
+
+    // Decode directly from slices of the original buffer to avoid per-message copies.
+    // Use `map` and share a cloned descriptor across threads.
+    let message_desc = message_desc.clone();
+
+    (
+        ranges
+            .into_par_iter()
+            .enumerate()
+            .map(|(sequence, (start, end))| {
+                let decoded = DynamicMessage::decode(message_desc.clone(), &buffer[start..end]);
+                ProtoView::new(sequence, decoded.ok())
+            })
+            .collect(),
+        status,
+    )
 }

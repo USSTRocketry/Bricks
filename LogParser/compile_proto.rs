@@ -12,7 +12,11 @@ fn main() -> Result<()> {
         .filter_map(|entry| entry.ok()?.to_str().map(|s| s.to_string()))
         .collect();
 
-    prost_build::compile_protos(&proto_files, &[PROTO_FOLDER])?;
+    prost_reflect_build::Builder::new()
+        // Generated `proto.rs` is included in `decoder`, so point attributes there.
+        .descriptor_pool("crate::decoder::DESCRIPTOR_POOL")
+        .compile_protos(&proto_files, &[PROTO_FOLDER])
+        .unwrap();
 
     return Ok(());
 }
