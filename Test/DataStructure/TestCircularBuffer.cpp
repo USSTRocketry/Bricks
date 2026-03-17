@@ -3,7 +3,7 @@
 
 using namespace ra::bricks;
 
-namespace RA::Bricks
+namespace
 {
 // Test that the buffer starts empty
 TEST(CircularBufferTest, InitialState)
@@ -183,4 +183,4 @@ TEST(CircularBufferTest, MoveAssignment)
     ASSERT_TRUE(item2.has_value());
     EXPECT_EQ(item2.value(), 20);
 }
-} // namespace RA::Bricks
+} // namespace

@@ -1,5 +1,5 @@
 {
-  "name": "Bricks",
+  "name": "Carrot-River",
   "version": "1.0.0",
   "description": "Utility repo for all avionics software",
   "keywords": [
@@ -8,7 +8,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/USSTRocketry/Bricks.git"
+    "url": "https://github.com/USSTRocketry/Carrot-River.git"
   },
   "build": {
     "flags": [
